@@ -31,8 +31,12 @@ class Runner:
     REAP_GRACE_TIME = 5 
     OUTPUT_FILE_PATH = "/media/RobotUSB/logs.txt"
 
+    # Tell the WebSocket handler to clear its buffer
+    ERASE_ESCAPE_SEQUENCE = b'\033[2J'
+
     USER_PIPE_NAME = None
     FLASK_PIPE_NAME = None
+    LOG_PIPE_NAME = None
     RCMUX_CLIENT = None
 
     PIPE_DIRECTORY = "/home/pi/pipes"
@@ -57,6 +61,8 @@ class Runner:
     USER_CODE_ENTRYPOINT_NAME = "main.py"
     USER_CODE_ENTRYPOINT_PATH = os.path.join(USER_CODE_PATH,USER_CODE_ENTRYPOINT_NAME)
 
+    USER_CODE_LOG_PIPE_NAME = None
+
     RUNNING = False
 
     def __init__(self):
@@ -70,6 +76,9 @@ class Runner:
 
         self.FLASK_PIPE_NAME = PipeName((PipeType.OUTPUT, "starter", "starter"), self.PIPE_DIRECTORY)
         self.RCMUX_CLIENT.open_pipe(self.FLASK_PIPE_NAME, delete=True, create=True, blocking=True)
+
+        self.LOG_PIPE_NAME = PipeName((PipeType.INPUT, "log", "starter"), self.PIPE_DIRECTORY)
+        self.RCMUX_CLIENT.open_pipe(self.LOG_PIPE_NAME, delete=True, create=True)
 
         self.__load_start_graphic()
         self.__init_gpio()
@@ -96,7 +105,9 @@ class Runner:
         self.OUTPUT_FILE = None  # The file to which output from the user code goes.
 
     def __start_usercode(self):
-        self.OUTPUT_FILE = open(self.OUTPUT_FILE_PATH, "w", 1)
+        # Send the erase escape sequence to clear remote logs
+        self.RCMUX_CLIENT.write(self.LOG_PIPE_NAME, self.ERASE_ESCAPE_SEQUENCE)
+
         environment = dict(os.environ)
         environment["PYTHONPATH"] = ROBOT_LIB_LOCATION
         # Start the user code.
@@ -105,7 +116,7 @@ class Runner:
                 # python -u /path/to/the_code.py
                 sys.executable, "-u", self.USER_CODE_ENTRYPOINT_PATH,
             ],
-            stdout=self.OUTPUT_FILE, stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT,
             bufsize=1,  # Line-buffered
             close_fds="posix" in sys.builtin_module_names,  # Only if we're not on Windows
             env=environment,
